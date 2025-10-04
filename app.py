@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import os
 
-# Set page configuration
-st.set_page_config(page_title="Nifty Stock SMA Viewer", layout="wide")
-st.title("📈 Nifty Stocks - SMA Viewer")
+# Set Streamlit page config
+st.set_page_config(page_title="📈 Nifty Stock SMA Viewer", layout="wide")
 
-# Load and process data with caching
+# App Title
+st.title("📊 Nifty Stocks - Interactive SMA Viewer")
+
+# Load and process data
 @st.cache_data
 def load_data(file_path):
     if not os.path.exists(file_path):
@@ -16,62 +17,105 @@ def load_data(file_path):
 
     df = pd.read_csv(file_path)
 
-    # Clean up
+    # Drop unwanted column
     if 'Unnamed: 0' in df.columns:
         df = df.drop('Unnamed: 0', axis=1)
 
-    # Fix types and spacing
+    # Fix data types and clean strings
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df['Stock'] = df['Stock'].astype(str).str.replace(" ", "", regex=True)
 
-    # Handle possible NaT in dates
+    # Remove rows with invalid dates
     df = df.dropna(subset=['Date'])
 
-    # Add SMA columns
+    # Sort by date
+    df = df.sort_values(by="Date")
+
+    # Calculate SMAs
     df['SMA_50'] = df['Close'].rolling(window=50, min_periods=1).mean()
     df['SMA_200'] = df['Close'].rolling(window=200, min_periods=1).mean()
 
     return df
 
-# Path to your CSV file
-csv_path = "Stocks_2025.csv"  # Make sure this is the correct relative path
-
+# Load the CSV data
+csv_path = "Stocks_2025.csv"  # Update if needed
 try:
     df = load_data(csv_path)
 except Exception as e:
     st.error(f"❌ Error loading data: {e}")
     st.stop()
 
-# Sidebar - Filters
-st.sidebar.header("🔍 Filter Options")
+# --- Sidebar filters ---
+st.sidebar.header("📂 Filters")
 
+# Dropdown: Category
 categories = sorted(df['Category'].dropna().unique())
 selected_category = st.sidebar.selectbox("Select Category", categories)
 
+# Filter stocks by selected category
 filtered_df = df[df['Category'] == selected_category]
 
+# Dropdown: Stock
 stocks = sorted(filtered_df['Stock'].dropna().unique())
 selected_stock = st.sidebar.selectbox("Select Stock", stocks)
 
+# Filter data for selected stock
 stock_data = filtered_df[filtered_df['Stock'] == selected_stock]
+
+# SMA Toggles
+show_sma50 = st.sidebar.checkbox("Show SMA 50", value=True)
+show_sma200 = st.sidebar.checkbox("Show SMA 200", value=True)
+
+# --- Main chart ---
+st.subheader(f"📈 {selected_stock} - Closing Price & SMAs")
 
 if stock_data.empty:
     st.warning("No data available for this stock.")
     st.stop()
 
-# Chart
-st.subheader(f"📊 Price and Moving Averages for: **{selected_stock}**")
+# Create interactive Plotly chart
+fig = go.Figure()
 
-fig, ax = plt.subplots(figsize=(14, 6))
+# Plot Close Price
+fig.add_trace(go.Scatter(
+    x=stock_data['Date'],
+    y=stock_data['Close'],
+    mode='lines+markers',
+    name='Close Price',
+    line=dict(color='green')
+))
 
-sns.lineplot(data=stock_data, x="Date", y="Close", label="Close", color='green', marker='D')
-sns.lineplot(data=stock_data, x="Date", y="SMA_50", label="SMA 50", color='blue')
-sns.lineplot(data=stock_data, x="Date", y="SMA_200", label="SMA 200", color='red')
+# Plot SMA 50
+if show_sma50:
+    fig.add_trace(go.Scatter(
+        x=stock_data['Date'],
+        y=stock_data['SMA_50'],
+        mode='lines',
+        name='SMA 50',
+        line=dict(color='blue', dash='dash')
+    ))
 
-ax.set_title(f"{selected_stock} - Closing Price with SMA 50 & SMA 200", fontsize=16)
-ax.set_xlabel("Date")
-ax.set_ylabel("Price")
-ax.legend()
-plt.xticks(rotation=45)
+# Plot SMA 200
+if show_sma200:
+    fig.add_trace(go.Scatter(
+        x=stock_data['Date'],
+        y=stock_data['SMA_200'],
+        mode='lines',
+        name='SMA 200',
+        line=dict(color='red', dash='dot')
+    ))
 
-st.pyplot(fig)
+# Update layout
+fig.update_layout(
+    title=f"{selected_stock} Price Chart with SMAs",
+    xaxis_title="Date",
+    yaxis_title="Price",
+    xaxis=dict(rangeslider=dict(visible=True)),
+    hovermode="x unified",
+    template="plotly_white",
+    height=600,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+)
+
+# Show chart
+st.plotly_chart(fig, use_container_width=True)
